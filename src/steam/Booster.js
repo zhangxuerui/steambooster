@@ -79,35 +79,43 @@ const commonButtonStyle = 'height: 26px;width: 44px;top: -12px;position: relativ
 const operateButton = {
     outToCollect: {
         text: '收藏',
-        style: commonButtonStyle
+        style: commonButtonStyle,
+        desc: '将游戏移入收藏，暂时不做补充包'
     },
     outToBooster: {
         text: '队列',
-        style: commonButtonStyle + 'background:forestgreen'
+        style: commonButtonStyle + 'background:forestgreen',
+        desc: '将游戏加入一键做包队列'
     },
     collectToBooster: {
         text: '队列',
-        style: commonButtonStyle + 'background:forestgreen'
+        style: commonButtonStyle + 'background:forestgreen',
+        desc: '将游戏加入一键做包队列'
     },
     collectToOut: {
         text: '移出',
-        style: commonButtonStyle + 'background:darkgoldenrod'
+        style: commonButtonStyle + 'background:darkgoldenrod',
+        desc: '将游戏从收藏移出'
     },
     boosterToCollect: {
         text: '收藏',
-        style: commonButtonStyle + 'background:mediumsla teblue'
+        style: commonButtonStyle + 'background:mediumsla teblue',
+        desc: '将游戏移入收藏，暂时不做补充包'
     },
     boosterToOut: {
         text: '删除',
-        style: commonButtonStyle + 'background:crimson'
+        style: commonButtonStyle + 'background:crimson',
+        desc: '将游戏由队列移出到全部'
     },
     outToBlack: {
         text: '拉黑',
-        style: commonButtonStyle + 'background:black'
+        style: commonButtonStyle + 'background:black',
+        desc: '将游戏加入黑名单，暂不考虑做包'
     },
     blackToOut: {
         text: '移出',
-        style: commonButtonStyle + 'background:darkslategrey'
+        style: commonButtonStyle + 'background:darkslategrey',
+        desc: '将游戏由黑名单移出到全部'
     },
 };
 //各种游戏规格补充包消耗的宝石数量
@@ -425,6 +433,7 @@ function computeCardPrice(appid) {
                             cacheInfo.cardInfo[appid] = undefined;
                             saveStorage(cacheKey, cacheInfo);
                             computeCardPrice(appid);
+                            return;
                         }
                         priceInfo.cardPrice = 3 * (totalPrice / count);
                         priceData[appid] = priceInfo;
@@ -518,7 +527,6 @@ function computeCardPrice(appid) {
             }
         });
     }
-
 }
 
 //制作单个补充包
@@ -558,7 +566,7 @@ function createSingleBooster(item) {
         cardInfo[item.appid] = cacheItem;
         saveStorage(cacheKey, cacheInfo);
 
-        setUnavalilable();
+        setUnavailable();
         buildOptions();
         generateCreateButton();
         generateGameList(pageNum, pageSize, searchResult);
@@ -596,7 +604,7 @@ function createBooster(index) {
         crossDomain: true,
         xhrFields: {withCredentials: true}
     }).success(function () {
-        console.info("制作补充包")
+        console.info("制作补充包成功 appid = ", item.value);
         doneList.push(item.value);
 
         //将对应补充包置为 已完成
@@ -625,7 +633,7 @@ function createBooster(index) {
         if (index + 1 < availableGame.length) {
             createBooster(index + 1)
         } else {
-            setUnavalilable();
+            setUnavailable();
             buildOptions();
             generateCreateButton();
             generateGameList(pageNum, pageSize, searchResult);
@@ -635,8 +643,8 @@ function createBooster(index) {
     });
 }
 
-//制包成功后将对应option设置为unavalilable
-function setUnavalilable() {
+//制包成功后将对应option设置为unavailable
+function setUnavailable() {
     if (doneList && doneList.length > 0) {
         for (let i = 0; i < backUpOptions.length; i++) {
             if (doneList.indexOf(backUpOptions[i].value) > -1) {
@@ -871,7 +879,7 @@ function generateAppInfo(currentAppId) {
 
     let costInfo = document.createElement('span');
     let cost =  getBoosterCost(currentAppId);
-    costInfo.innerHTML = '做包成本：' + cost;
+    costInfo.innerHTML = '成本：' + cost;
     costInfo.setAttribute('title', '按照市场宝珠价格计算制作此游戏一个补充包成本');
     costInfo.setAttribute('style', 'display: inline-block; margin-left: 8px');
 
@@ -884,31 +892,31 @@ function generateAppInfo(currentAppId) {
     let tempCardPrice = priceData[currentAppId].cardPrice;
     if (!isNaN(tempCardPrice)) {
         tempCardPrice = (tempCardPrice / 1.15).toFixed(2);
-        cardPrice.innerHTML = '卡牌均价：' + tempCardPrice;
+        cardPrice.innerHTML = '售价：' + tempCardPrice;
         if (cost > 0 && tempCardPrice > cost) {
             cardPrice.setAttribute('style', 'display: inline-block; margin-left: 8px;color:red');
         } else {
             cardPrice.setAttribute('style', 'display: inline-block; margin-left: 8px');
         }
     }
-    cardPrice.setAttribute('title', '拆包后三张卡牌均价');
+    cardPrice.setAttribute('title', '拆包后三张卡牌均价总和，即一个补充包平均拆包后卖出价格（税后）');
 
-    let marketInfo =  document.createElement('a');
-    marketInfo.innerHTML = '游戏物品市场地址';
+    let marketInfo = document.createElement('a');
+    marketInfo.innerHTML = '游戏物品';
     marketInfo.setAttribute('href', buildMarketUrl(currentAppName));
     marketInfo.setAttribute('style', 'display: inline-block; margin-left: 8px');
     marketInfo.setAttribute('target', '_blank');
 
-    let boosterUrl =  document.createElement('a');
-    boosterUrl.innerHTML = '做包地址';
+    let boosterUrl = document.createElement('a');
+    boosterUrl.innerHTML = '做包';
     boosterUrl.setAttribute('href', 'https://steamcommunity.com//tradingcards/boostercreator/');
     boosterUrl.setAttribute('style', 'display: inline-block; margin-left: 8px');
     boosterUrl.setAttribute('target', '_blank');
 
-    let marketUrl =  document.createElement('a');
-    marketUrl.innerHTML = '查看价格';
-    marketUrl.setAttribute('title', '可将软锁游戏加入购物车');
-    marketUrl.setAttribute('href', 'https://store.steampowered.com/widget/'+currentAppId);
+    let marketUrl = document.createElement('a');
+    marketUrl.innerHTML = '解决软锁';
+    marketUrl.setAttribute('title', '进入单独查看价格页面，可将软锁游戏加入购物车');
+    marketUrl.setAttribute('href', 'https://store.steampowered.com/widget/' + currentAppId);
     marketUrl.setAttribute('style', 'display: inline-block; margin-left: 8px');
     marketUrl.setAttribute('target', '_blank');
 
@@ -1043,14 +1051,14 @@ function generateGameList(pageNum, pageSize, searchResult) {
 
     //搜索输入框
     let searchInput = document.createElement('input');
+    searchInput.onchange = function () {
+        doSearch()
+    };
     searchInput.setAttribute('id', 'searchInput');
     searchInput.setAttribute('style', 'background-color: rgba( 103, 193, 245, 0.2 ); color: #fff; border: 1px solid #000;border-radius: 3px; width: 240px;padding: 5px;');
     if (searchInfo && searchInfo.trim() !== '') {
         searchInput.value = searchInfo
     }
-
-    //要搜索价格的游戏列表
-    let gameList = [];
 
     let typeInfo = document.createElement('span');
     typeInfo.setAttribute('style', 'margin-left: 30px');
@@ -1088,14 +1096,14 @@ function generateGameList(pageNum, pageSize, searchResult) {
 
     let pageSizeInfo = document.createElement('span');
     pageSizeInfo.setAttribute('style', 'margin-left: 30px');
-    pageSizeInfo.innerHTML = '分页大小:';
-    pageSizeInfo.setAttribute('title', '每页展示的数据量，输入1-50的数字，点击搜索后生效');
+    pageSizeInfo.innerHTML = '每页数量:';
+    pageSizeInfo.setAttribute('title', '每页展示的数据量，输入1-50的数字，点击搜索按钮后生效');
 
     //页面size输入框
     let pageSizeInput = document.createElement('input');
     pageSizeInput.setAttribute('id', 'pageSizeInput');
     pageSizeInput.setAttribute('style', 'margin-left: 15px;background-color: rgba( 103, 193, 245, 0.2 ); color: #fff; border: 1px solid #000;border-radius: 3px; width: 60px;padding: 5px;');
-    pageSizeInput.setAttribute('title', '输入分页大小，默认10');
+    pageSizeInput.setAttribute('title', '输入每页数量，默认10');
     pageSizeInput.value = pageSize;
 
     //搜索按钮
@@ -1129,6 +1137,7 @@ function generateGameList(pageNum, pageSize, searchResult) {
     let th4 = document.createElement('th');
     th4.innerHTML = '宝石数';
     th4.setAttribute('style', 'width:49px');
+    th4.setAttribute('title', '此游戏制作一个补充包需要的宝石数量');
     let th5 = document.createElement('th');
     th5.innerHTML = '成本';
     th5.setAttribute('style', 'width:34px');
@@ -1210,8 +1219,8 @@ function generateGameList(pageNum, pageSize, searchResult) {
             let availableTime = document.createElement('span');
             let numberTest = /[0-9]/;
             if (!item.available_at_time) {
-                availableTime.innerHTML = '当前可制作';
-                availableTime.setAttribute('title', '点击制作');
+                availableTime.innerHTML = '可制作';
+                availableTime.setAttribute('title', '点击制作此游戏补充包');
                 availableTime.setAttribute('style', 'display: inline-block;width: 122px; margin-left: 8px;position: relative;top: -12px;color:yellow;text-decoration:underline;cursor: pointer;')
                 availableTime.onclick = function () {
                     createSingleBooster(item)
@@ -1287,14 +1296,12 @@ function generateGameList(pageNum, pageSize, searchResult) {
                     cardPrice.setAttribute('style', 'display: inline-block;width: 30px; margin-left: 8px;position: relative;top: -12px');
                 }
             } else {
-                cardPrice.innerHTML = '点击';
+                cardPrice.innerHTML = '查询';
                 cardPrice.setAttribute('title', '查询请求较多，点击后需要稍等片刻');
                 cardPrice.setAttribute('style', 'display: inline-block;width: 30px; margin-left: 8px;position: relative;top: -12px;text-decoration:underline;cursor: pointer;');
                 cardPrice.onclick = function () {
                     computeCardPrice(item.appid)
                 };
-                //加入待搜索价格列表
-                gameList.push(item.appid)
             }
 
             //如果已查询补充包价格，渲染
@@ -1314,7 +1321,7 @@ function generateGameList(pageNum, pageSize, searchResult) {
                     buyPrice.setAttribute('style', 'display: inline-block;width: 30px; margin-left: 4px;position: relative;top: -12px');
                 }
             }else {
-                buyPrice.innerHTML = '点击';
+                buyPrice.innerHTML = '查询';
                 buyPrice.setAttribute('title', '查询当前补充包最高买单价格，展示税后');
                 buyPrice.setAttribute('style', 'display: inline-block;width: 30px; margin-left: 4px;position: relative;top: -12px;text-decoration:underline;cursor: pointer;');
                 buyPrice.onclick = function () {
@@ -1334,6 +1341,7 @@ function generateGameList(pageNum, pageSize, searchResult) {
                 madeCount.innerHTML = 0;
             }
             madeCount.setAttribute('style', 'display: inline-block;width: 30px; margin-left: 8px;position: relative;top: -12px;');
+            madeCount.setAttribute('title','有记录的此游戏做包总次数');
 
 
             //收藏、移除、移入收藏、加入队列、彻底删除等操作
@@ -1436,6 +1444,7 @@ function generateOperateButton(item, type) {
     button.setAttribute('class', classObj.enableButton);
     button.setAttribute('style', operateButton[type].style);
     button.setAttribute('id', item.appid.toString() + '+' + type);
+    button.setAttribute('title', operateButton[type].desc);
     button.onclick = function () {
         operateGame(item.appid.toString(), type)
     };
