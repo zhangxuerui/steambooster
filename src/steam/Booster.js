@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         steam补充包工具
 // @namespace    http://tampermonkey.net/
-// @version      3.03
+// @version      3.04
 // @description  To dear sbeamer!
 // @author       逍遥千寻
 // @include		 http*://steamcommunity.com/*tradingcards/boostercreator*
@@ -104,7 +104,7 @@ const operateButton = {
     },
     boosterToOut: {
         text: '删除',
-        style: commonButtonStyle + 'background:crimson',
+        style: commonButtonStyle + 'background:chocolate',
         desc: '将游戏由队列移出到全部'
     },
     outToBlack: {
@@ -116,6 +116,11 @@ const operateButton = {
         text: '移出',
         style: commonButtonStyle + 'background:darkslategrey',
         desc: '将游戏由黑名单移出到全部'
+    },
+    reset: {
+        text: '重置',
+        style: commonButtonStyle + 'background:maroon',
+        desc: '将此游戏的缓存信息全部删除，用于解决游戏卡牌能否交易发生变更等问题'
     },
 };
 //各种游戏规格补充包消耗的宝石数量
@@ -389,6 +394,35 @@ function querySingleBoosterPrice(item) {
     // });
 }
 
+
+//同步接口，查询当前游戏的卡牌是否可以交易
+function queryMarketable(appid) {
+    let marketable = false;
+    let url = 'https://steamcommunity.com/market/search/render/?start=0&count=20&category_753_cardborder[]=tag_cardborder_0&appid=753&category_753_Game[]=tag_app_' + appid;
+    $J.ajaxSettings.async = false;
+    $J.get(url, function (response) {
+        //卡牌总数
+        let cardCount = response.total_count;
+        if (!cardCount) {
+            return;
+        }
+        let cardList = $J('<div>' + response.results_html + '</div>');
+        let cardUrl = cardList.find('.market_listing_row_link')[0].href;
+        $J.get(cardUrl, function (data) {
+            marketable = parseInt(data.match(/"marketable":(\d+)/)[1]) === 1;
+        })
+    })
+    return marketable;
+}
+
+//根据缓存判断某个游戏卡牌是否可交易
+function getMarketable(appid) {
+    let cardInfo = cacheInfo.cardInfo;
+    let cacheItem = cardInfo ? cardInfo[appid] : {};
+    //不可交易，直接返回
+    return !(cacheItem && cacheItem.marketable !== undefined && !cacheItem.marketable);
+}
+
 //根据appid估算拆包后三张卡牌平均总价，按照最低售价计算
 function computeCardPrice(appid) {
     let priceInfo = priceData[appid] ? priceData[appid] : {};
@@ -401,10 +435,24 @@ function computeCardPrice(appid) {
 
     let cardInfo = cacheInfo.cardInfo;
     let cacheItem = cardInfo ? cardInfo[appid] : {};
+    //不可交易，直接返回
+    if (!getMarketable(appid)) {
+        return
+    }
     if (cacheItem && cacheItem.cardIdList) {
         let count = 0;
         let totalPrice = 0;
         let exceptionInfo = '';
+        //已有缓存数据，查询卡牌是否可交易
+        if (cacheItem.marketable === undefined) {
+            cacheItem.marketable = queryMarketable(appid);
+            cacheInfo.cardInfo[appid] = cacheItem;
+            saveStorage(cacheKey, cacheInfo);
+            if (!getMarketable(appid)) {
+                generateGameList(pageNum, pageSize, searchResult);
+                return
+            }
+        }
         cacheItem.cardIdList.forEach(id => {
             let data = {
                 country: cacheInfo.areaInfo.country,
@@ -420,7 +468,7 @@ function computeCardPrice(appid) {
                     let price =  JSON.parse(response.responseText)
                     count++;
                     let sellOrder = price.sell_order_graph;
-                    console.info("查询卡牌价格", count)
+                    console.info("查询卡牌价格,appid:", appid, ",cardId:", id, ",index:", count)
                     if (sellOrder === undefined){
                         exceptionInfo = 'Query order afresh';
                     }
@@ -449,6 +497,17 @@ function computeCardPrice(appid) {
             return;
         }
         queryCard = true;
+
+        //查询卡牌是否可交易
+        cacheItem = {};
+        cacheItem.marketable = queryMarketable(appid);
+        cacheInfo.cardInfo[appid] = cacheItem;
+        saveStorage(cacheKey, cacheInfo);
+        if (!getMarketable(appid)) {
+            generateGameList(pageNum, pageSize, searchResult);
+            return
+        }
+
         //获取所有卡牌
         let url = 'https://steamcommunity.com/market/search/render/?start=0&count=20&category_753_cardborder[]=tag_cardborder_0&appid=753&category_753_Game[]=tag_app_' + appid;
         GM_xmlhttpRequest({
@@ -463,7 +522,7 @@ function computeCardPrice(appid) {
                     return
                 }
                 //构建缓存信息
-                let cardCacheItem = {};
+                let cardCacheItem = cacheInfo.cardInfo[appid] ? cacheInfo.cardInfo[appid] : {};
                 if (cacheItem && cacheItem.madeCount) {
                     cardCacheItem.madeCount = cacheItem.madeCount;
                 }
@@ -512,6 +571,10 @@ function computeCardPrice(appid) {
                                         cacheInfo.areaInfo.currency = data.currency;
 
                                         cardCacheItem.count = cardCount;
+
+                                        //查询卡牌是否可交易
+                                        cardCacheItem.marketable = queryMarketable(appid);
+
                                         cacheInfo.cardInfo[appid] = cardCacheItem;
                                         saveStorage(cacheKey, cacheInfo);
                                         queryCard = false;
@@ -592,44 +655,9 @@ function createBooster(index) {
     }
     let item = availableGame[index];
 
-    $J.ajax({
-        url: 'https://steamcommunity.com/tradingcards/ajaxcreatebooster/',
-        type: 'POST',
-        data: {
-            sessionid: sessionId,
-            appid: item.value,
-            series: GAME_INFO[item.value].series,
-            tradability_preference: 1
-        },
-        crossDomain: true,
-        xhrFields: {withCredentials: true}
-    }).success(function () {
-        console.info("制作补充包成功 appid = ", item.value);
-        doneList.push(item.value);
-
-        //将对应补充包置为 已完成
-        for (let searchItem of searchResult) {
-            if (searchItem && searchItem.appid.toString() === item.value.toString()){
-                searchItem.available_at_time = '已完成';
-            }
-        }
-
-        //历史制作数量+1
-        let cardInfo = cacheInfo.cardInfo;
-        let cacheItem = cardInfo[item.value];
-        if (cacheItem) {
-            if (isNaN(cacheItem.madeCount)) {
-                cacheItem.madeCount = 1;
-            } else {
-                cacheItem.madeCount = cacheItem.madeCount + 1;
-            }
-        } else {
-            cacheItem = {};
-            cacheItem.madeCount = 1;
-        }
-        cardInfo[item.value] = cacheItem;
-        saveStorage(cacheKey, cacheInfo);
-
+    //不可交易的包，跳过
+    if (!getMarketable(item.value)){
+        console.info("卡牌不可交易，跳过 appid = ", item.value);
         if (index + 1 < availableGame.length) {
             createBooster(index + 1)
         } else {
@@ -638,9 +666,57 @@ function createBooster(index) {
             generateCreateButton();
             generateGameList(pageNum, pageSize, searchResult);
         }
-    }).error(function () {
-        document.getElementById("createButton").innerHTML = "宝石不足或其他原因"
-    });
+    }else {
+        $J.ajax({
+            url: 'https://steamcommunity.com/tradingcards/ajaxcreatebooster/',
+            type: 'POST',
+            data: {
+                sessionid: sessionId,
+                appid: item.value,
+                series: GAME_INFO[item.value].series,
+                tradability_preference: 1
+            },
+            crossDomain: true,
+            xhrFields: {withCredentials: true}
+        }).success(function () {
+            console.info("制作补充包成功 appid = ", item.value);
+            doneList.push(item.value);
+
+            //将对应补充包置为 已完成
+            for (let searchItem of searchResult) {
+                if (searchItem && searchItem.appid.toString() === item.value.toString()){
+                    searchItem.available_at_time = '已完成';
+                }
+            }
+
+            //历史制作数量+1
+            let cardInfo = cacheInfo.cardInfo;
+            let cacheItem = cardInfo[item.value];
+            if (cacheItem) {
+                if (isNaN(cacheItem.madeCount)) {
+                    cacheItem.madeCount = 1;
+                } else {
+                    cacheItem.madeCount = cacheItem.madeCount + 1;
+                }
+            } else {
+                cacheItem = {};
+                cacheItem.madeCount = 1;
+            }
+            cardInfo[item.value] = cacheItem;
+            saveStorage(cacheKey, cacheInfo);
+
+            if (index + 1 < availableGame.length) {
+                createBooster(index + 1)
+            } else {
+                setUnavailable();
+                buildOptions();
+                generateCreateButton();
+                generateGameList(pageNum, pageSize, searchResult);
+            }
+        }).error(function () {
+            document.getElementById("createButton").innerHTML = "宝石不足或其他原因"
+        });
+    }
 }
 
 //制包成功后将对应option设置为unavailable
@@ -1133,7 +1209,7 @@ function generateGameList(pageNum, pageSize, searchResult) {
     th2.setAttribute('style', 'width:160px');
     let th3 = document.createElement('th');
     th3.innerHTML = '状态';
-    th3.setAttribute('style', 'width:124px');
+    th3.setAttribute('style', 'width:80px');
     let th4 = document.createElement('th');
     th4.innerHTML = '宝石数';
     th4.setAttribute('style', 'width:49px');
@@ -1219,19 +1295,25 @@ function generateGameList(pageNum, pageSize, searchResult) {
             let availableTime = document.createElement('span');
             let numberTest = /[0-9]/;
             if (!item.available_at_time) {
-                availableTime.innerHTML = '可制作';
-                availableTime.setAttribute('title', '点击制作此游戏补充包');
-                availableTime.setAttribute('style', 'display: inline-block;width: 122px; margin-left: 8px;position: relative;top: -12px;color:yellow;text-decoration:underline;cursor: pointer;')
-                availableTime.onclick = function () {
-                    createSingleBooster(item)
+                if (cacheInfo.cardInfo[item.appid] && cacheInfo.cardInfo[item.appid].marketable !== undefined && !cacheInfo.cardInfo[item.appid].marketable) {
+                    availableTime.innerHTML = '不可交易';
+                    availableTime.setAttribute('title', '此游戏卡牌已不可在市场交易');
+                    availableTime.setAttribute('style', 'display: inline-block;width: 82px; margin-left: 8px;position: relative;top: -12px;color:red')
+                } else {
+                    availableTime.innerHTML = '可制作';
+                    availableTime.setAttribute('title', '点击制作此游戏补充包');
+                    availableTime.setAttribute('style', 'display: inline-block;width: 82px; margin-left: 8px;position: relative;top: -12px;color:yellow;text-decoration:underline;cursor: pointer;')
+                    availableTime.onclick = function () {
+                        createSingleBooster(item)
+                    }
                 }
             } else if (numberTest.test(item.available_at_time)) {
                 availableTime.innerHTML = item.available_at_time;
-                availableTime.setAttribute('style', 'display: inline-block;width: 122px; margin-left: 8px;position: relative;top: -12px;');
+                availableTime.setAttribute('style', 'display: inline-block;width: 82px; margin-left: 8px;position: relative;top: -3px;');
                 availableTime.setAttribute('title', '下次可制作补充包时间');
             } else {
                 availableTime.innerHTML = item.available_at_time;
-                availableTime.setAttribute('style', 'display: inline-block;width: 122px; margin-left: 8px;position: relative;top: -12px;');
+                availableTime.setAttribute('style', 'display: inline-block;width: 82px; margin-left: 8px;position: relative;top: -12px;');
             }
 
             //补充包需要宝石数
@@ -1361,6 +1443,7 @@ function generateGameList(pageNum, pageSize, searchResult) {
                 button2 = generateOperateButton(item, 'outToCollect');
                 button3 = generateOperateButton(item, 'outToBlack');
             }
+            let button4 = generateOperateButton(item, 'reset');
             tr.appendChild(aTag);
             tr.appendChild(name);
             tr.appendChild(availableTime);
@@ -1381,6 +1464,7 @@ function generateGameList(pageNum, pageSize, searchResult) {
             if (button3) {
                 tr.appendChild(button3)
             }
+            tr.appendChild(button4)
             tbody.appendChild(tr)
         }
     }
@@ -1510,18 +1594,18 @@ function generateCreateButton() {
 
     //绘制创建按钮
     let createButton = document.createElement('button');
-    createButton.setAttribute('title', '只操作补充包队列的游戏');
+    createButton.setAttribute('title', '只操作补充包队列的游戏（并且自动跳过其中不可交易的游戏）');
     createButton.setAttribute('id', 'createButton');
     createButton.onclick = function () {
         document.getElementById("createButton").setAttribute('class', classObj.disableButton);
         doneList = [];
         createBooster(0)
     };
-    if (availableGame.length === 0) {
+    let totalCost = countGemsCost();
+    if (availableGame.length === 0 || totalCost === 0) {
         createButton.innerHTML = '队列全部冷却中';
         createButton.setAttribute('class', classObj.disableButton)
     } else {
-        let totalCost = countGemsCost();
         createButton.innerHTML = '一键制作 ' + availableGame.length + ' 个补充包' + ' ( ' + totalCost + ' ) ';
         createButton.setAttribute('class', classObj.enableButton)
     }
@@ -1546,7 +1630,7 @@ function countGemsCost() {
     let totalCost = 0;
     if (availableGame.length > 0) {
         availableGame.map(function (item) {
-            if (GAME_INFO[item.value] && GAME_INFO[item.value]['price']) {
+            if (getMarketable(item.value) && GAME_INFO[item.value] && GAME_INFO[item.value]['price']) {
                 totalCost += parseInt(GAME_INFO[item.value]['price'])
             }
         })
@@ -1640,6 +1724,10 @@ function operateGame(appid, type) {
             } else {
                 boosterInfo.black.splice(boosterInfo.black.indexOf(appid), 1);
             }
+            break;
+        case 'reset':
+            cacheInfo.cardInfo[appid] = undefined;
+            saveStorage(cacheKey, cacheInfo)
             break;
         default:
             return
