@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         steam补充包工具
 // @namespace    http://tampermonkey.net/
-// @version      3.04
+// @version      3.05
 // @description  To dear sbeamer!
 // @author       逍遥千寻
 // @include		 http*://steamcommunity.com/*tradingcards/boostercreator*
@@ -255,12 +255,14 @@ function buildBoosterUrl(item) {
 
 //查询当前搜索结果的拆包后三张普通卡牌价格
 function queryResultCardPrice(i) {
+    console.info(i)
     //判断是否已暂停
     if (queryCardPriceFlag) {
         if (searchResult.length > 0) {
             let item = searchResult[i];
             //判断是否查询过，已查询的直接跳转下一个
-            if (!priceData[item.appid] || !priceData[item.appid].hadQueryCard) {
+            if (getMarketable(item.appid) && (!priceData[item.appid] || !priceData[item.appid].hadQueryCard)) {
+                console.info('!getMarketable(item.appid)', getMarketable(item.appid))
                 computeCardPrice(item.appid);
                 //如果后面还有数据，继续查询
                 if (i < searchResult.length - 1) {
@@ -437,6 +439,7 @@ function computeCardPrice(appid) {
     let cacheItem = cardInfo ? cardInfo[appid] : {};
     //不可交易，直接返回
     if (!getMarketable(appid)) {
+        priceData[appid].hadQueryCard = true;
         return
     }
     if (cacheItem && cacheItem.cardIdList) {
@@ -504,7 +507,9 @@ function computeCardPrice(appid) {
         cacheInfo.cardInfo[appid] = cacheItem;
         saveStorage(cacheKey, cacheInfo);
         if (!getMarketable(appid)) {
+            priceData[appid].hadQueryCard = true;
             generateGameList(pageNum, pageSize, searchResult);
+            queryCard = false;
             return
         }
 
@@ -519,6 +524,7 @@ function computeCardPrice(appid) {
                 //卡牌总数
                 let cardCount = data.total_count
                 if (!cardCount) {
+                    queryCard = false;
                     return
                 }
                 //构建缓存信息
@@ -537,13 +543,14 @@ function computeCardPrice(appid) {
                         method: "GET",
                         url: link,
                         onload: function(pageData) {
-                            console.info("查询卡牌信息")
                             let responseData = pageData.response
+                            let id = responseData.match(/Market_LoadOrderSpread\( (\d+)/)[1];
+                            console.info("查询卡牌价格,appid:", appid, ",cardId:", id, ",index:", count)
                             let data = {
                                 country: responseData.match(/g_strCountryCode = "([^"]+)"/)[1],
                                 language: responseData.match(/g_strLanguage = "([^"]+)"/)[1],
                                 currency: parseInt(responseData.match(/"wallet_currency":(\d+)/)[1]),
-                                item_nameid: responseData.match(/Market_LoadOrderSpread\( (\d+)/)[1]
+                                item_nameid: id
                             };
                             let cardUrl = "https://steamcommunity.com/market/itemordershistogram";
                             GM_xmlhttpRequest({
@@ -1076,10 +1083,10 @@ function generateGameList(pageNum, pageSize, searchResult) {
     };
     //查询当前搜索结果卡牌均价
     let queryCardPrice = document.createElement('button');
-    queryCardPrice.innerHTML = queryCardPriceFlag ? '暂停':'查询卡牌';
-    queryCardPrice.setAttribute('class', queryCardPriceFlag ? classObj.disableButton : classObj.enableButton);
+    queryCardPrice.innerHTML = queryCardPriceFlag ? '暂停查询' : '自动查询';
+    queryCardPrice.setAttribute('class', classObj.enableButton);
     queryCardPrice.setAttribute('style', 'margin-left: 15px;width: 90px; height: 26px;');
-    queryCardPrice.setAttribute('title', queryCardPriceFlag ? "点击暂停查询" : "点击从当前页开始自动查询当前所有搜索结果的三张卡牌均价，已查询会跳过，请勿重复快速点击");
+    queryCardPrice.setAttribute('title', queryCardPriceFlag ? "点击将暂停自动查询" : "点击从当前页开始自动查询当前所有搜索结果的三张卡牌均价，已查询或不可交易卡牌会跳过，请勿重复快速点击");
     if (queryCardPriceFlag) {
         queryCardPrice.onclick = function () {
             queryCardPriceFlag = false;
@@ -1354,7 +1361,10 @@ function generateGameList(pageNum, pageSize, searchResult) {
 
             //税后三张卡牌均价如果高于成本，红色
             let cardPrice = document.createElement('span');
-            if (priceData[item.appid] && priceData[item.appid].hadQueryCard) {
+            if(!getMarketable(item.appid)){
+                cardPrice.innerHTML = '无';
+                cardPrice.setAttribute('style', 'display: inline-block;width: 30px; margin-left: 8px;position: relative;top: -12px');
+            } else if (priceData[item.appid] && priceData[item.appid].hadQueryCard) {
                 let tempCardPrice = priceData[item.appid].cardPrice;
                 if (!isNaN(tempCardPrice)) {
                     tempCardPrice = (tempCardPrice / 1.15).toFixed(2);
@@ -1373,7 +1383,7 @@ function generateGameList(pageNum, pageSize, searchResult) {
                             profitRate.setAttribute('style', profitRate.getAttribute('style') + 'color:red')
                         }
                     }
-                } else {
+                }else {
                     cardPrice.innerHTML = '未知';
                     cardPrice.setAttribute('style', 'display: inline-block;width: 30px; margin-left: 8px;position: relative;top: -12px');
                 }
@@ -1387,7 +1397,10 @@ function generateGameList(pageNum, pageSize, searchResult) {
             }
 
             //如果已查询补充包价格，渲染
-            if (priceData[item.appid] && priceData[item.appid].hadBooster) {
+            if(!getMarketable(item.appid)){
+                buyPrice.innerHTML = '无';
+                buyPrice.setAttribute('style', 'display: inline-block;width: 30px; margin-left: 4px;position: relative;top: -12px;');
+            }else if (priceData[item.appid] && priceData[item.appid].hadBooster) {
                 let boosterBuyPrice = priceData[item.appid].buyPrice;
                 if (!isNaN(boosterBuyPrice)) {
                     boosterBuyPrice = (boosterBuyPrice / 1.15).toFixed(2);
